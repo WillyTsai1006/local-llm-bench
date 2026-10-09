@@ -1,0 +1,25 @@
+[project]
+name = "local-llm-bench"
+version = "0.1.0"
+description = "A lightweight benchmarking tool for local LLM inference on NVIDIA GPUs."
+readme = "README.md"
+requires-python = ">=3.11"
+
+dependencies = [
+    "typer",
+    "rich",
+    "nvidia-ml-py",
+]
+
+[project.optional-dependencies]
+ml = [
+    "torch",
+    "transformers",
+]
+
+dev = [
+    "pytest",
+]
+
+[project.scripts]
+llm-bench = "llm_bench.cli:app"
