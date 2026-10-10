@@ -7,6 +7,8 @@ from llm_bench.gpu import get_system_info
 
 from llm_bench.model import load_model
 
+from llm_bench.benchmark import run_benchmark
+
 app = typer.Typer()
 console = Console()
 
@@ -37,31 +39,29 @@ def run(
     model: str = typer.Option(..., help="Hugging Face model name"),
     prompt: str = typer.Option(..., help="Prompt text"),
 ) -> None:
-    """Run a simple local LLM inference."""
+    """Run a local LLM inference."""
 
     tokenizer, llm = load_model(model)
 
-    inputs = tokenizer(
+    result = run_benchmark(
+        llm,
+        tokenizer,
         prompt,
-        return_tensors="pt",
     )
 
-    inputs = {
-        key: value.to("cuda")
-        for key, value in inputs.items()
-    }
+    console.print(result["text"])
 
-    outputs = llm.generate(
-        **inputs,
-        max_new_tokens=64,
-    )
+    table = Table(title="Benchmark Results")
 
-    text = tokenizer.decode(
-        outputs[0],
-        skip_special_tokens=True,
-    )
+    table.add_column("Metric")
+    table.add_column("Value")
 
-    console.print(text)
+    table.add_row("Latency", f"{result['latency']:.3f} s")
+    table.add_row("Generated Tokens", str(result["generated_tokens"]))
+    table.add_row("Throughput", f"{result['throughput']:.2f} tokens/s")
+    table.add_row("Peak VRAM", f"{result['peak_vram_gb']:.2f} GB")
+
+    console.print(table)
 
 
 if __name__ == "__main__":
