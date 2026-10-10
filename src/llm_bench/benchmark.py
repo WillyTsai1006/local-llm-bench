@@ -5,7 +5,12 @@ import torch
 from llm_bench.metrics import calculate_throughput, summarize
 
 
-def run_benchmark(model, tokenizer, prompt: str, max_new_tokens: int = 64):
+def run_benchmark(
+    model,
+    tokenizer,
+    prompt: str,
+    max_new_tokens: int = 64,
+):
     inputs = tokenizer(
         prompt,
         return_tensors="pt",
@@ -18,43 +23,115 @@ def run_benchmark(model, tokenizer, prompt: str, max_new_tokens: int = 64):
 
     torch.cuda.reset_peak_memory_stats()
 
-    torch.cuda.synchronize()
-    start = time.perf_counter()
+    generated_tokens_list = []
 
-    outputs = model.generate(
-        **inputs,
-        max_new_tokens=max_new_tokens,
+    with torch.inference_mode():
+        # Prefill + first token
+        torch.cuda.synchronize()
+        start = time.perf_counter()
+
+        outputs = model(
+            **inputs,
+            use_cache=True,
+        )
+
+        next_token = torch.argmax(
+            outputs.logits[:, -1, :],
+            dim=-1,
+            keepdim=True,
+        )
+
+        torch.cuda.synchronize()
+        first_token_time = time.perf_counter()
+
+        generated_tokens_list.append(next_token)
+
+        past_key_values = outputs.past_key_values
+        attention_mask = inputs["attention_mask"]
+        current_token = next_token
+
+        # Decode remaining tokens
+        for _ in range(max_new_tokens - 1):
+            attention_mask = torch.cat(
+                [
+                    attention_mask,
+                    torch.ones(
+                        (attention_mask.shape[0], 1),
+                        device=attention_mask.device,
+                        dtype=attention_mask.dtype,
+                    ),
+                ],
+                dim=1,
+            )
+
+            outputs = model(
+                input_ids=current_token,
+                attention_mask=attention_mask,
+                past_key_values=past_key_values,
+                use_cache=True,
+            )
+
+            next_token = torch.argmax(
+                outputs.logits[:, -1, :],
+                dim=-1,
+                keepdim=True,
+            )
+
+            generated_tokens_list.append(next_token)
+
+            past_key_values = outputs.past_key_values
+            current_token = next_token
+
+        torch.cuda.synchronize()
+        end = time.perf_counter()
+
+    ttft = first_token_time - start
+    total_latency = end - start
+    decode_latency = end - first_token_time
+
+    generated_tokens = len(generated_tokens_list)
+    decode_tokens = max(generated_tokens - 1, 0)
+
+    decode_throughput = (
+        calculate_throughput(
+            tokens=decode_tokens,
+            seconds=decode_latency,
+        )
+        if decode_tokens > 0
+        else 0.0
     )
 
-    torch.cuda.synchronize()
-    end = time.perf_counter()
+    generated_ids = torch.cat(
+        generated_tokens_list,
+        dim=1,
+    )
 
-    peak_vram_bytes = torch.cuda.max_memory_allocated()
-    peak_vram_gb = peak_vram_bytes / (1024 ** 3)
-
-    latency = end - start
-
-    input_tokens = inputs["input_ids"].shape[1]
-    total_tokens = outputs.shape[1]
-    generated_tokens = total_tokens - input_tokens
-
-    throughput = calculate_throughput(
-        tokens=generated_tokens,
-        seconds=latency,
+    full_output = torch.cat(
+        [
+            inputs["input_ids"],
+            generated_ids,
+        ],
+        dim=1,
     )
 
     text = tokenizer.decode(
-        outputs[0],
+        full_output[0],
         skip_special_tokens=True,
     )
 
+    peak_vram_bytes = torch.cuda.max_memory_allocated()
+    peak_vram_gb = peak_vram_bytes / (1024**3)
+
     return {
         "text": text,
-        "latency": latency,
+        "latency": total_latency,
+        "ttft": ttft,
+        "decode_latency": decode_latency,
         "generated_tokens": generated_tokens,
-        "throughput": throughput,
+        "throughput": decode_throughput,
         "peak_vram_gb": peak_vram_gb,
     }
+
 
 def run_repeated_benchmark(
     model,
@@ -91,13 +168,36 @@ def run_repeated_benchmark(
         )
         results.append(result)
 
-    latencies = [result["latency"] for result in results]
-    throughputs = [result["throughput"] for result in results]
-    peak_vrams = [result["peak_vram_gb"] for result in results]
+    latencies = [
+        result["latency"]
+        for result in results
+    ]
+
+    ttfts = [
+        result["ttft"]
+        for result in results
+    ]
+
+    decode_latencies = [
+        result["decode_latency"]
+        for result in results
+    ]
+
+    throughputs = [
+        result["throughput"]
+        for result in results
+    ]
+
+    peak_vrams = [
+        result["peak_vram_gb"]
+        for result in results
+    ]
 
     return {
         "runs": results,
         "latency_stats": summarize(latencies),
+        "ttft_stats": summarize(ttfts),
+        "decode_latency_stats": summarize(decode_latencies),
         "throughput_stats": summarize(throughputs),
         "peak_vram_gb": max(peak_vrams),
         "generated_tokens": results[0]["generated_tokens"],

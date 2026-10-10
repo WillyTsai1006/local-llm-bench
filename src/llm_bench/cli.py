@@ -65,6 +65,8 @@ def run(
 
     latency = result["latency_stats"]
     throughput = result["throughput_stats"]
+    ttft = result["ttft_stats"]
+    decode_latency = result["decode_latency_stats"]
 
     table.add_row("Runs", str(runs))
     table.add_row("Cold Latency",f"{result['cold_latency']:.3f} s",)
@@ -78,13 +80,23 @@ def run(
     table.add_row("Latency Std Dev", f"{latency['std']:.3f} s")
 
     table.add_row(
-        "Mean Throughput",
-        f"{throughput['mean']:.2f} tokens/s",
+        "Peak VRAM",
+        f"{result['peak_vram_gb']:.2f} GB",
     )
 
     table.add_row(
-        "Peak VRAM",
-        f"{result['peak_vram_gb']:.2f} GB",
+        "Mean TTFT",
+        f"{ttft['mean'] * 1000:.2f} ms",
+    )
+
+    table.add_row(
+        "Mean Decode Latency",
+        f"{decode_latency['mean']:.3f} s",
+    )
+
+    table.add_row(
+        "Mean Decode Throughput",
+        f"{throughput['mean']:.2f} tokens/s",
     )
 
     console.print(table)

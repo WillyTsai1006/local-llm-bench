@@ -11,5 +11,6 @@ def load_model(model_name: str):
     )
 
     model = model.to("cuda")
+    model.eval()
 
     return tokenizer, model
