@@ -7,7 +7,7 @@ from llm_bench.gpu import get_system_info
 
 from llm_bench.model import load_model
 
-from llm_bench.benchmark import run_benchmark
+from llm_bench.benchmark import run_repeated_benchmark
 
 app = typer.Typer()
 console = Console()
@@ -35,18 +35,25 @@ def system() -> None:
     console.print(table)
 
 @app.command()
+@app.command()
 def run(
     model: str = typer.Option(..., help="Hugging Face model name"),
     prompt: str = typer.Option(..., help="Prompt text"),
+    runs: int = typer.Option(5, help="Number of measured runs"),
+    warmup_runs: int = typer.Option(1, help="Number of warm-up runs"),
+    max_new_tokens: int = typer.Option(64, help="Maximum generated tokens"),
 ) -> None:
     """Run a local LLM inference."""
 
     tokenizer, llm = load_model(model)
 
-    result = run_benchmark(
+    result = run_repeated_benchmark(
         llm,
         tokenizer,
         prompt,
+        runs=runs,
+        warmup_runs=warmup_runs,
+        max_new_tokens=max_new_tokens,
     )
 
     console.print(result["text"])
@@ -56,10 +63,29 @@ def run(
     table.add_column("Metric")
     table.add_column("Value")
 
-    table.add_row("Latency", f"{result['latency']:.3f} s")
+    latency = result["latency_stats"]
+    throughput = result["throughput_stats"]
+
+    table.add_row("Runs", str(runs))
+    table.add_row("Cold Latency",f"{result['cold_latency']:.3f} s",)
+    table.add_row("Warm-up Runs", str(warmup_runs))
     table.add_row("Generated Tokens", str(result["generated_tokens"]))
-    table.add_row("Throughput", f"{result['throughput']:.2f} tokens/s")
-    table.add_row("Peak VRAM", f"{result['peak_vram_gb']:.2f} GB")
+
+    table.add_row("Mean Latency", f"{latency['mean']:.3f} s")
+    table.add_row("Median Latency", f"{latency['median']:.3f} s")
+    table.add_row("Min Latency", f"{latency['min']:.3f} s")
+    table.add_row("Max Latency", f"{latency['max']:.3f} s")
+    table.add_row("Latency Std Dev", f"{latency['std']:.3f} s")
+
+    table.add_row(
+        "Mean Throughput",
+        f"{throughput['mean']:.2f} tokens/s",
+    )
+
+    table.add_row(
+        "Peak VRAM",
+        f"{result['peak_vram_gb']:.2f} GB",
+    )
 
     console.print(table)
 

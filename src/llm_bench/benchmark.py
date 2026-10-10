@@ -2,7 +2,7 @@ import time
 
 import torch
 
-from llm_bench.metrics import calculate_throughput
+from llm_bench.metrics import calculate_throughput, summarize
 
 
 def run_benchmark(model, tokenizer, prompt: str, max_new_tokens: int = 64):
@@ -54,4 +54,53 @@ def run_benchmark(model, tokenizer, prompt: str, max_new_tokens: int = 64):
         "generated_tokens": generated_tokens,
         "throughput": throughput,
         "peak_vram_gb": peak_vram_gb,
+    }
+
+def run_repeated_benchmark(
+    model,
+    tokenizer,
+    prompt: str,
+    runs: int = 5,
+    warmup_runs: int = 1,
+    max_new_tokens: int = 64,
+):
+    cold_result = run_benchmark(
+        model,
+        tokenizer,
+        prompt,
+        max_new_tokens=max_new_tokens,
+    )
+
+    # Warm-up runs: 不計入正式統計
+    for _ in range(warmup_runs):
+        run_benchmark(
+            model,
+            tokenizer,
+            prompt,
+            max_new_tokens=max_new_tokens,
+        )
+
+    results = []
+
+    for _ in range(runs):
+        result = run_benchmark(
+            model,
+            tokenizer,
+            prompt,
+            max_new_tokens=max_new_tokens,
+        )
+        results.append(result)
+
+    latencies = [result["latency"] for result in results]
+    throughputs = [result["throughput"] for result in results]
+    peak_vrams = [result["peak_vram_gb"] for result in results]
+
+    return {
+        "runs": results,
+        "latency_stats": summarize(latencies),
+        "throughput_stats": summarize(throughputs),
+        "peak_vram_gb": max(peak_vrams),
+        "generated_tokens": results[0]["generated_tokens"],
+        "text": results[-1]["text"],
+        "cold_latency": cold_result["latency"],
     }
