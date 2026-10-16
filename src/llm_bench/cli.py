@@ -69,7 +69,7 @@ def run(
     decode_latency = result["decode_latency_stats"]
 
     table.add_row("Runs", str(runs))
-    table.add_row("Cold Latency",f"{result['cold_latency']:.3f} s",)
+    table.add_row("First Inference Latency",f"{result['first_inference_latency']:.3f} s",)
     table.add_row("Warm-up Runs", str(warmup_runs))
     table.add_row("Generated Tokens", str(result["generated_tokens"]))
 
@@ -80,8 +80,18 @@ def run(
     table.add_row("Latency Std Dev", f"{latency['std']:.3f} s")
 
     table.add_row(
-        "Peak VRAM",
-        f"{result['peak_vram_gb']:.2f} GB",
+        "Peak Allocated",
+        f"{result['peak_allocated_gb']:.2f} GB",
+    )
+
+    table.add_row(
+        "Peak Reserved",
+        f"{result['peak_reserved_gb']:.2f} GB",
+    )
+
+    table.add_row(
+        "NVML Peak Used",
+        f"{result['nvml_peak_used_gb']:.2f} GB",
     )
 
     table.add_row(

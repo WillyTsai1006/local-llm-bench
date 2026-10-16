@@ -4,6 +4,8 @@ import torch
 
 from llm_bench.metrics import calculate_throughput, summarize
 
+from llm_bench.gpu import NvmlMemoryMonitor
+
 
 def run_benchmark(
     model,
@@ -22,6 +24,9 @@ def run_benchmark(
     }
 
     torch.cuda.reset_peak_memory_stats()
+
+    memory_monitor = NvmlMemoryMonitor()
+    memory_monitor.start()
 
     generated_tokens_list = []
 
@@ -84,6 +89,7 @@ def run_benchmark(
 
         torch.cuda.synchronize()
         end = time.perf_counter()
+        nvml_peak_used_gb = memory_monitor.stop()
 
     ttft = first_token_time - start
     total_latency = end - start
@@ -119,8 +125,11 @@ def run_benchmark(
         skip_special_tokens=True,
     )
 
-    peak_vram_bytes = torch.cuda.max_memory_allocated()
-    peak_vram_gb = peak_vram_bytes / (1024**3)
+    peak_allocated_bytes = torch.cuda.max_memory_allocated()
+    peak_reserved_bytes = torch.cuda.max_memory_reserved()
+
+    peak_allocated_gb = peak_allocated_bytes / (1024**3)
+    peak_reserved_gb = peak_reserved_bytes / (1024**3)
 
     return {
         "text": text,
@@ -129,7 +138,9 @@ def run_benchmark(
         "decode_latency": decode_latency,
         "generated_tokens": generated_tokens,
         "throughput": decode_throughput,
-        "peak_vram_gb": peak_vram_gb,
+        "peak_allocated_gb": peak_allocated_gb,
+        "peak_reserved_gb": peak_reserved_gb,
+        "nvml_peak_used_gb": nvml_peak_used_gb,
     }
 
 
@@ -188,8 +199,18 @@ def run_repeated_benchmark(
         for result in results
     ]
 
-    peak_vrams = [
-        result["peak_vram_gb"]
+    peak_allocated = [
+        result["peak_allocated_gb"]
+        for result in results
+    ]
+
+    peak_reserved = [
+        result["peak_reserved_gb"]
+        for result in results
+    ]
+
+    nvml_peaks = [
+        result["nvml_peak_used_gb"]
         for result in results
     ]
 
@@ -199,8 +220,10 @@ def run_repeated_benchmark(
         "ttft_stats": summarize(ttfts),
         "decode_latency_stats": summarize(decode_latencies),
         "throughput_stats": summarize(throughputs),
-        "peak_vram_gb": max(peak_vrams),
+        "peak_allocated_gb": max(peak_allocated),
+        "peak_reserved_gb": max(peak_reserved),
         "generated_tokens": results[0]["generated_tokens"],
         "text": results[-1]["text"],
-        "cold_latency": cold_result["latency"],
+        "first_inference_latency": cold_result["latency"],
+        "nvml_peak_used_gb": max(nvml_peaks),
     }
